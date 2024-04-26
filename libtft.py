@@ -10,7 +10,6 @@ import os
 import re
 import sys
 import zlib
-from pathlib import Path
 
 argparser = argparse.ArgumentParser(description="The stupidest version control")
 argsubparsers = argparser.add_subparsers(title="Commands", dest="command")
@@ -20,6 +19,16 @@ argsubparsers.required = True
 argsp = argsubparsers.add_parser("init", help="Initialize a new empty tft repository.")
 argsp.add_argument("path", metavar="directory", nargs="?", default=".", help="Where to create the repository.")
 
+
+
+#subparser for hash-object
+argsp = argsubparsers.add_parser("hash-object", help="Compute object ID and optionally creates a blob from a file")
+argsp.add_argument("-t", metavar="type", dest="type", choices=["blob", "commit", "tag", "tree"], default="blob", help="Specify the type")
+argsp.add_argument("-w", dest="write", action="store_true", help="Actually write the object into the database")
+argsp.add_argument("path", help="Read object from <file>")
+
+
+ 
 
 #subparser for hash-object
 argsp = argsubparsers.add_parser("hash-object", help="Compute object ID and optionally creates a blob from a file")
@@ -91,37 +100,7 @@ class GitObject (object):
     
     def init(self):
         pass
-      
 
-class GitCommit(GitObject):
-    # Specify the object format as 'commit'
-    fmt = b'commit'
-
-    def __init__(self):
-        # Initialize the commit object with an empty key-value list map (KVL)
-        self.kvlm = {}
-
-    def read_data(self, data):
-        """Deserialize the data into a key-value list map (KVL)."""
-        self.kvlm = kvlm_parse(data)
-
-    def write_data(self):
-        """Serialize the commit's key-value list map (KVL) back into bytes."""
-        return kvlm_serialize(self.kvlm)
-
-      
-class GitBlob(GitObject):
-    # Blob format type
-    fmt = b'blob'
-
-    def serialize(self):
-        """Returns the blob data."""
-        return self.blobdata
-
-    def deserialize(self, data):
-        """Stores the data in the blob."""
-        self.blobdata = data
-      
       
 def repo_path(repo, *path): 
     """Compute path under repo's gitdir."""
@@ -201,6 +180,7 @@ def repo_create(path):
 
     return repo
 
+
 def repo_find(path=".", required=True):
     """"
     Finds the root of the current repository.
@@ -227,6 +207,32 @@ def repo_find(path=".", required=True):
     return repo_find(parent, required)
 
   
+def repo_find(path=".", required=True):
+    """"
+    Finds the root of the current repository.
+    """
+    #gets the real path resolving symlinks
+    path = Path(path).resolve()
+
+    #check if the path contains the .git directory
+    path_to_check = path.joinpath(".git")
+    if path_to_check.is_dir():
+        return GitObject(path)
+
+    #if it doesn't try to get the parent directory of path
+    parent = path.joinpath("..").resolve()
+
+    #if parent directory corresponds to the path it means we've reached the base directory. Git repository isn't found
+    if parent == path:
+        if required:
+            raise Exception("No tft Repository found.")
+        else:
+            return None
+
+    #otherwise we'll do this again with the parent directory
+    return repo_find(parent, required)
+
+
 def object_read(repo, sha):
 
     #read file .git/objects where first two are the directory name, the rest as the file name 
@@ -259,7 +265,7 @@ def object_read(repo, sha):
 
         # Construct and return an instance of the corresponding Git object type
         return c(raw[y+1:])
-
+      
 def object_hash(fd, fmt, repo=None):
     """Hash object, writing it to repo if provided."""
     data = fd.read()
